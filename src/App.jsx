@@ -3,7 +3,7 @@ import { Search, Radio, Heart, Filter, X, Menu, Compass, ListMusic, User, Loader
 
 const SUPABASE_URL = "https://dohpearjxpuxgcoxrctx.supabase.co/rest/v1/";
 const SUPABASE_ANON_KEY = "sb_publishable_DSYzu4lm_mqN06q282GdHw__oPUuH08";
-const NEWS_RSS_URL = "https://dancingastronaut.com/feed/";
+const NEWS_RSS_URL = "https://feeds.feedburner.com/DJmag-LatestNews";
 const NEWS_API_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(NEWS_RSS_URL)}`;
 
 const supabaseHeaders = {
@@ -324,7 +324,7 @@ function NewsCard({ item }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#2EE6B8", textTransform: "uppercase" }}>
-          Dancing Astronaut
+          DJ Mag
         </span>
         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#5B5F7E" }}>
           {item.pubDate ? timeAgo(item.pubDate) : ""}
@@ -569,7 +569,7 @@ export default function App() {
 
           {activeTab === "discover" && (
             <div style={{ paddingBottom: 14, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "#7D82A6" }}>
-              Latest EDM news, powered by Dancing Astronaut
+              Latest EDM news, powered by DJ Mag
             </div>
           )}
         </div>
