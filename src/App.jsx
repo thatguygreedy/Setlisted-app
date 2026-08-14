@@ -1,13 +1,34 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, Radio, Heart, Filter, X, Menu, Compass, ListMusic, User, Loader2 } from "lucide-react";
+import { Search, Radio, Heart, Filter, X, Menu, Compass, ListMusic, User, Loader2, Newspaper, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 
 const SUPABASE_URL = "https://dohpearjxpuxgcoxrctx.supabase.co/rest/v1/";
 const SUPABASE_ANON_KEY = "sb_publishable_DSYzu4lm_mqN06q282GdHw__oPUuH08";
+const NEWS_RSS_URL = "https://dancingastronaut.com/feed/";
+const NEWS_API_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(NEWS_RSS_URL)}`;
 
 const supabaseHeaders = {
   apikey: SUPABASE_ANON_KEY,
   Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
 };
+
+const FOLLOWED_STORAGE_KEY = "setlisted:followed";
+
+function loadFollowed() {
+  try {
+    const raw = localStorage.getItem(FOLLOWED_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFollowed(followedSet) {
+  try {
+    localStorage.setItem(FOLLOWED_STORAGE_KEY, JSON.stringify(Array.from(followedSet)));
+  } catch {
+    // ignore write failures (e.g. private browsing)
+  }
+}
 
 function timeAgo(isoString) {
   const diffMs = Date.now() - new Date(isoString).getTime();
@@ -17,6 +38,11 @@ function timeAgo(isoString) {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function spotifySearchUrl(title, artist) {
+  const q = encodeURIComponent(`${title} ${artist}`);
+  return `https://open.spotify.com/search/${q}`;
 }
 
 function EqBars({ active }) {
@@ -61,9 +87,63 @@ function GenrePill({ genre }) {
   );
 }
 
-function StationCard({ station, followed, onToggleFollow }) {
-  const [current, ...recent] = station.tracks;
+function TrackRow({ track, isLast }) {
+  return (
+    <button
+      onClick={() => window.open(spotifySearchUrl(track.title, track.artist), "_blank", "noopener,noreferrer")}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        width: "100%",
+        background: "transparent",
+        border: "none",
+        textAlign: "left",
+        cursor: "pointer",
+        paddingBottom: 8,
+        paddingTop: 2,
+        borderBottom: isLast ? "none" : "1px solid #1C2038",
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            fontSize: 13.5,
+            color: "#C7CAE3",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {track.title}
+        </div>
+        <div
+          style={{
+            fontSize: 11.5,
+            color: "#6E7295",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {track.artist}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: 10 }}>
+        <GenrePill genre={track.genre} />
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: "#5B5F7E" }}>
+          {timeAgo(track.played_at)}
+        </span>
+        <ExternalLink size={12} color="#5B5F7E" />
+      </div>
+    </button>
+  );
+}
+
+function StationCard({ station, followed, onToggleFollow, expanded, onToggleExpand }) {
+  const [current, ...rest] = station.tracks;
   const isLive = current && Date.now() - new Date(current.played_at).getTime() < 20 * 60 * 1000;
+  const recent = expanded ? rest : rest.slice(0, 3);
 
   return (
     <div
@@ -78,7 +158,19 @@ function StationCard({ station, followed, onToggleFollow }) {
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <button
+          onClick={onToggleExpand}
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: 0,
+            textAlign: "left",
+          }}
+        >
           <div
             style={{
               width: 44,
@@ -99,6 +191,9 @@ function StationCard({ station, followed, onToggleFollow }) {
           <div>
             <div
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
                 fontFamily: "'Bebas Neue', sans-serif",
                 fontSize: 22,
                 letterSpacing: 0.5,
@@ -107,12 +202,13 @@ function StationCard({ station, followed, onToggleFollow }) {
               }}
             >
               {station.dj}
+              {rest.length > 0 && (expanded ? <ChevronUp size={16} color="#7D82A6" /> : <ChevronDown size={16} color="#7D82A6" />)}
             </div>
             <div style={{ fontSize: 12.5, color: "#7D82A6" }}>
               {station.show} · {station.network}
             </div>
           </div>
-        </div>
+        </button>
         <button
           onClick={() => onToggleFollow(station.id)}
           style={{
@@ -127,6 +223,7 @@ function StationCard({ station, followed, onToggleFollow }) {
             padding: "7px 12px",
             borderRadius: 8,
             cursor: "pointer",
+            flexShrink: 0,
           }}
         >
           <Heart size={13} fill={followed ? "#1C0410" : "none"} />
@@ -135,12 +232,16 @@ function StationCard({ station, followed, onToggleFollow }) {
       </div>
 
       {current ? (
-        <div
+        <button
+          onClick={() => window.open(spotifySearchUrl(current.title, current.artist), "_blank", "noopener,noreferrer")}
           style={{
             background: "#0F1223",
             border: "1px solid #1E2340",
             borderRadius: 10,
             padding: "12px 14px",
+            textAlign: "left",
+            cursor: "pointer",
+            width: "100%",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -162,10 +263,13 @@ function StationCard({ station, followed, onToggleFollow }) {
               {timeAgo(current.played_at)}
             </span>
           </div>
-          <div style={{ fontSize: 15.5, color: "#EDEBFA", fontWeight: 600 }}>{current.title}</div>
+          <div style={{ fontSize: 15.5, color: "#EDEBFA", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+            {current.title}
+            <ExternalLink size={13} color="#5B5F7E" />
+          </div>
           <div style={{ fontSize: 12.5, color: "#9498BC", marginBottom: 8 }}>{current.artist}</div>
           <GenrePill genre={current.genre} />
-        </div>
+        </button>
       ) : (
         <div style={{ fontSize: 12.5, color: "#5B5F7E", fontStyle: "italic" }}>
           No tracks logged yet for this station.
@@ -174,72 +278,78 @@ function StationCard({ station, followed, onToggleFollow }) {
 
       {recent.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {recent.slice(0, 3).map((t, i) => (
-            <div
-              key={t.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingBottom: 8,
-                borderBottom: i < recent.length - 1 ? "1px solid #1C2038" : "none",
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 13.5,
-                    color: "#C7CAE3",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {t.title}
-                </div>
-                <div
-                  style={{
-                    fontSize: 11.5,
-                    color: "#6E7295",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {t.artist}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: 10 }}>
-                <GenrePill genre={t.genre} />
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: "#5B5F7E" }}>
-                  {timeAgo(t.played_at)}
-                </span>
-              </div>
-            </div>
+          {recent.map((t, i) => (
+            <TrackRow key={t.id} track={t} isLast={i === recent.length - 1} />
           ))}
         </div>
+      )}
+
+      {!expanded && rest.length > 3 && (
+        <button
+          onClick={onToggleExpand}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "#7D82A6",
+            fontSize: 11.5,
+            fontFamily: "'JetBrains Mono', monospace",
+            cursor: "pointer",
+            padding: "2px 0",
+            textAlign: "center",
+          }}
+        >
+          + {rest.length - 3} more tracks
+        </button>
       )}
     </div>
   );
 }
 
-const FOLLOWED_STORAGE_KEY = "setlisted:followed";
-
-function loadFollowed() {
-  try {
-    const raw = localStorage.getItem(FOLLOWED_STORAGE_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-function saveFollowed(followedSet) {
-  try {
-    localStorage.setItem(FOLLOWED_STORAGE_KEY, JSON.stringify(Array.from(followedSet)));
-  } catch {
-    // ignore write failures (e.g. private browsing)
-  }
+function NewsCard({ item }) {
+  return (
+    <button
+      onClick={() => window.open(item.link, "_blank", "noopener,noreferrer")}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        width: "100%",
+        textAlign: "left",
+        background: "#14172A",
+        border: "1px solid #232748",
+        borderRadius: 12,
+        padding: "14px 16px",
+        cursor: "pointer",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#2EE6B8", textTransform: "uppercase" }}>
+          Dancing Astronaut
+        </span>
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#5B5F7E" }}>
+          {item.pubDate ? timeAgo(item.pubDate) : ""}
+        </span>
+      </div>
+      <div style={{ fontSize: 14, color: "#EDEBFA", fontWeight: 600, lineHeight: 1.3 }}>{item.title}</div>
+      {item.description && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "#9498BC",
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+          }}
+        >
+          {item.description}
+        </div>
+      )}
+      <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#7D82A6" }}>
+        Read more <ExternalLink size={11} />
+      </span>
+    </button>
+  );
 }
 
 export default function App() {
@@ -249,8 +359,13 @@ export default function App() {
   const [genre, setGenre] = useState("All");
   const [query, setQuery] = useState("");
   const [followed, setFollowed] = useState(() => loadFollowed());
-  const [showFollowedOnly, setShowFollowedOnly] = useState(false);
+  const [expandedStations, setExpandedStations] = useState(() => new Set());
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [activeTab, setActiveTab] = useState("feed");
+
+  const [news, setNews] = useState([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  const [newsError, setNewsError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -296,6 +411,28 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNews() {
+      try {
+        setNewsLoading(true);
+        setNewsError(null);
+        const res = await fetch(NEWS_API_URL);
+        if (!res.ok) throw new Error(`News request failed: ${res.status}`);
+        const data = await res.json();
+        if (data.status !== "ok") throw new Error("News feed unavailable");
+        if (!cancelled) setNews(data.items || []);
+      } catch (err) {
+        if (!cancelled) setNewsError(err.message);
+      } finally {
+        if (!cancelled) setNewsLoading(false);
+      }
+    }
+
+    loadNews();
+  }, []);
+
   const genres = useMemo(() => {
     const set = new Set();
     stations.forEach((s) => s.tracks.forEach((t) => t.genre && set.add(t.genre)));
@@ -311,9 +448,17 @@ export default function App() {
     });
   };
 
+  const toggleExpand = (id) => {
+    setExpandedStations((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
   const filtered = useMemo(() => {
     return stations.filter((s) => {
-      if (showFollowedOnly && !followed.has(s.id)) return false;
+      if (activeTab === "following" && !followed.has(s.id)) return false;
       if (genre !== "All" && !s.tracks.some((t) => t.genre === genre)) return false;
       if (query.trim()) {
         const q = query.toLowerCase();
@@ -322,7 +467,9 @@ export default function App() {
       }
       return true;
     });
-  }, [genre, query, showFollowedOnly, followed, stations]);
+  }, [genre, query, activeTab, followed, stations]);
+
+  const totalTracks = useMemo(() => stations.reduce((sum, s) => sum + s.tracks.length, 0), [stations]);
 
   return (
     <div
@@ -362,85 +509,101 @@ export default function App() {
                 SETLISTED
               </span>
             </div>
-            <span
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 10,
-                color: "#5B5F7E",
-              }}
-            >
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#5B5F7E" }}>
               {lastUpdated ? `Updated ${timeAgo(lastUpdated.toISOString())}` : ""}
             </span>
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                background: "#14172A",
-                border: "1px solid #232748",
-                borderRadius: 9,
-                padding: "9px 12px",
-              }}
-            >
-              <Search size={15} color="#5B5F7E" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search DJs, shows, tracks"
-                style={{ background: "transparent", border: "none", outline: "none", color: "#EDEBFA", fontSize: 13.5, width: "100%" }}
-              />
-              {query && <X size={14} color="#5B5F7E" style={{ cursor: "pointer" }} onClick={() => setQuery("")} />}
-            </div>
-            <button
-              onClick={() => setShowFollowedOnly((v) => !v)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                background: showFollowedOnly ? "#FF3E6C" : "#14172A",
-                border: showFollowedOnly ? "1px solid #FF3E6C" : "1px solid #232748",
-                borderRadius: 9,
-                padding: "0 12px",
-                cursor: "pointer",
-              }}
-              aria-label="Show followed only"
-            >
-              <Filter size={14} color={showFollowedOnly ? "#1C0410" : "#7D82A6"} />
-            </button>
-          </div>
+          {(activeTab === "feed" || activeTab === "following") && (
+            <>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: "#14172A",
+                    border: "1px solid #232748",
+                    borderRadius: 9,
+                    padding: "9px 12px",
+                  }}
+                >
+                  <Search size={15} color="#5B5F7E" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search DJs, shows, tracks"
+                    style={{ background: "transparent", border: "none", outline: "none", color: "#EDEBFA", fontSize: 13.5, width: "100%" }}
+                  />
+                  {query && <X size={14} color="#5B5F7E" style={{ cursor: "pointer" }} onClick={() => setQuery("")} />}
+                </div>
+              </div>
 
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 14 }}>
-            {genres.map((g) => (
-              <button
-                key={g}
-                onClick={() => setGenre(g)}
-                style={{
-                  flexShrink: 0,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11.5,
-                  letterSpacing: 0.3,
-                  textTransform: "uppercase",
-                  padding: "7px 12px",
-                  borderRadius: 7,
-                  border: genre === g ? "1px solid #2EE6B8" : "1px solid #232748",
-                  background: genre === g ? "rgba(46,230,184,0.12)" : "transparent",
-                  color: genre === g ? "#2EE6B8" : "#7D82A6",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
+              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 14 }}>
+                {genres.map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setGenre(g)}
+                    style={{
+                      flexShrink: 0,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 11.5,
+                      letterSpacing: 0.3,
+                      textTransform: "uppercase",
+                      padding: "7px 12px",
+                      borderRadius: 7,
+                      border: genre === g ? "1px solid #2EE6B8" : "1px solid #232748",
+                      background: genre === g ? "rgba(46,230,184,0.12)" : "transparent",
+                      color: genre === g ? "#2EE6B8" : "#7D82A6",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {activeTab === "discover" && (
+            <div style={{ paddingBottom: 14, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "#7D82A6" }}>
+              Latest EDM news, powered by Dancing Astronaut
+            </div>
+          )}
         </div>
 
         <div style={{ padding: "16px 18px 90px", display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
-          {loading ? (
+          {activeTab === "profile" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ background: "#14172A", border: "1px solid #232748", borderRadius: 14, padding: 20 }}>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 20, marginBottom: 12 }}>YOUR STATS</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13, color: "#C7CAE3" }}>
+                  <div>Following {followed.size} station{followed.size === 1 ? "" : "s"}</div>
+                  <div>Tracking {stations.length} station{stations.length === 1 ? "" : "s"} total</div>
+                  <div>{totalTracks} tracks logged</div>
+                  <div>{genres.length - 1} genres represented</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 11.5, color: "#5B5F7E", textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>
+                Data refreshes automatically every minute
+              </div>
+            </div>
+          ) : activeTab === "discover" ? (
+            newsLoading ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 60, color: "#5B5F7E" }}>
+                <Loader2 size={22} style={{ animation: "spin 1s linear infinite" }} />
+                <span style={{ fontSize: 13 }}>Loading news…</span>
+              </div>
+            ) : newsError ? (
+              <div style={{ textAlign: "center", color: "#FF3E6C", fontSize: 13, marginTop: 60 }}>
+                Couldn't load news: {newsError}
+              </div>
+            ) : (
+              news.map((item, i) => <NewsCard key={i} item={item} />)
+            )
+          ) : loading ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 60, color: "#5B5F7E" }}>
               <Loader2 size={22} style={{ animation: "spin 1s linear infinite" }} />
               <span style={{ fontSize: 13 }}>Loading live data…</span>
@@ -451,11 +614,18 @@ export default function App() {
             </div>
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: "center", color: "#5B5F7E", fontSize: 13.5, marginTop: 60 }}>
-              No shows match those filters.
+              {activeTab === "following" ? "You're not following any stations yet." : "No shows match those filters."}
             </div>
           ) : (
             filtered.map((s) => (
-              <StationCard key={s.id} station={s} followed={followed.has(s.id)} onToggleFollow={toggleFollow} />
+              <StationCard
+                key={s.id}
+                station={s}
+                followed={followed.has(s.id)}
+                onToggleFollow={toggleFollow}
+                expanded={expandedStations.has(s.id)}
+                onToggleExpand={() => toggleExpand(s.id)}
+              />
             ))
           )}
         </div>
@@ -474,15 +644,27 @@ export default function App() {
           }}
         >
           {[
-            { icon: ListMusic, label: "Feed" },
-            { icon: Compass, label: "Discover" },
-            { icon: Heart, label: "Following" },
-            { icon: User, label: "Profile" },
-          ].map(({ icon: Icon, label }, i) => (
-            <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-              <Icon size={19} color={i === 0 ? "#FF3E6C" : "#5B5F7E"} />
-              <span style={{ fontSize: 10, color: i === 0 ? "#FF3E6C" : "#5B5F7E" }}>{label}</span>
-            </div>
+            { id: "feed", icon: ListMusic, label: "Feed" },
+            { id: "discover", icon: Newspaper, label: "Discover" },
+            { id: "following", icon: Heart, label: "Following" },
+            { id: "profile", icon: User, label: "Profile" },
+          ].map(({ id, icon: Icon, label }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 3,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <Icon size={19} color={activeTab === id ? "#FF3E6C" : "#5B5F7E"} />
+              <span style={{ fontSize: 10, color: activeTab === id ? "#FF3E6C" : "#5B5F7E" }}>{label}</span>
+            </button>
           ))}
         </div>
       </div>
