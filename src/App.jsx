@@ -223,13 +223,32 @@ function StationCard({ station, followed, onToggleFollow }) {
   );
 }
 
+const FOLLOWED_STORAGE_KEY = "setlisted:followed";
+
+function loadFollowed() {
+  try {
+    const raw = localStorage.getItem(FOLLOWED_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFollowed(followedSet) {
+  try {
+    localStorage.setItem(FOLLOWED_STORAGE_KEY, JSON.stringify(Array.from(followedSet)));
+  } catch {
+    // ignore write failures (e.g. private browsing)
+  }
+}
+
 export default function App() {
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [genre, setGenre] = useState("All");
   const [query, setQuery] = useState("");
-  const [followed, setFollowed] = useState(new Set());
+  const [followed, setFollowed] = useState(() => loadFollowed());
   const [showFollowedOnly, setShowFollowedOnly] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -287,6 +306,7 @@ export default function App() {
     setFollowed((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
+      saveFollowed(next);
       return next;
     });
   };
